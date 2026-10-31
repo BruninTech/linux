@@ -1401,6 +1401,16 @@ choice
 		  options; the platform specific options are deprecated
 		  and will be soon removed.
 
+	config DEBUG_SEC_LOG
+		bool "Samsung sec_log RAM ring buffer (Galaxy Tab S2 / Exynos 5433)"
+		depends on ARCH_EXYNOS
+		help
+		  Writes the zImage decompressor's output into Samsung's sec_log
+		  ring buffer (header at 0x25fffff8, data from 0x26000000), which
+		  the Android kernels expose as /proc/last_kmsg after a reset.
+		  Only the decompressor uses it: the kernel proper reports through
+		  earlycon=seclog,0x25fffff8.
+
 endchoice
 
 config DEBUG_AT91_UART
@@ -1531,6 +1541,7 @@ config DEBUG_LL_INCLUDE
 	default "debug/vt8500.S" if DEBUG_VT8500_UART0
 	default "debug/zynq.S" if DEBUG_ZYNQ_UART0 || DEBUG_ZYNQ_UART1
 	default "debug/bcm63xx.S" if DEBUG_BCM63XX_UART || DEBUG_BCMBCA
+	default "debug/seclog.S" if DEBUG_SEC_LOG
 	default "debug/digicolor.S" if DEBUG_DIGICOLOR_UA0
 	default "debug/brcmstb.S" if DEBUG_BRCMSTB_UART
 	default "mach/debug-macro.S"
@@ -1545,6 +1556,7 @@ config DEBUG_UART_8250
 
 config DEBUG_UART_PHYS
 	hex "Physical base address of debug UART"
+	default 0x25fff000 if DEBUG_SEC_LOG
 	default 0x01c28000 if DEBUG_SUNXI_UART0
 	default 0x01c28400 if DEBUG_SUNXI_UART1
 	default 0x01d0c000 if DEBUG_DAVINCI_DA8XX_UART1
@@ -1677,6 +1689,7 @@ config DEBUG_UART_PHYS
 
 config DEBUG_UART_VIRT
 	hex "Virtual base address of debug UART"
+	default 0xf5fff000 if DEBUG_SEC_LOG
 	default 0xc881f000 if DEBUG_RV1108_UART2
 	default 0xc8821000 if DEBUG_RV1108_UART1
 	default 0xc8912000 if DEBUG_RV1108_UART0
@@ -1806,7 +1819,7 @@ config DEBUG_UART_8250_PALMCHIP
 
 config DEBUG_UNCOMPRESS
 	bool "Enable decompressor debugging via DEBUG_LL output"
-	depends on !ARCH_MULTIPLATFORM
+	depends on !ARCH_MULTIPLATFORM || DEBUG_SEC_LOG
 	depends on !(ARCH_FOOTBRIDGE || ARCH_RPC || ARCH_SA1100)
 	depends on DEBUG_LL && !DEBUG_OMAP2PLUS_UART && \
 		     (!DEBUG_TEGRA_UART || !ZBOOT_ROM) && \

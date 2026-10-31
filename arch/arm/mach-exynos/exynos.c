@@ -12,6 +12,11 @@
 #include <linux/of_fdt.h>
 #include <linux/platform_device.h>
 #include <linux/irqchip.h>
+#include <linux/clk-provider.h>
+#include <linux/clocksource.h>
+#include <linux/tick.h>
+#include <linux/delay.h>
+#include <linux/printk.h>
 #include <linux/soc/samsung/exynos-regs-pmu.h>
 
 #include <asm/cacheflush.h>
@@ -201,6 +206,7 @@ static char const *const exynos_dt_compat[] __initconst = {
 	"samsung,exynos5250",
 	"samsung,exynos5260",
 	"samsung,exynos5420",
+	"samsung,exynos5433",
 	NULL
 };
 
@@ -213,6 +219,79 @@ static void __init exynos_dt_fixup(void)
 	of_fdt_limit_memory(8);
 }
 
+
+/* ---- M1 bring-up diagnostics: is the GIC / arch timer / MCT usable from NS SVC? ---- */
+static inline u64 m1_cntvct(void)
+{
+	u32 lo, hi;
+
+	asm volatile("mrrc p15, 1, %0, %1, c14" : "=r"(lo), "=r"(hi));
+	return ((u64)hi << 32) | lo;
+}
+
+static void __init m1_wait_us(unsigned int us)
+{
+	u64 t = m1_cntvct() + 24ULL * us;
+
+	while ((s64)(m1_cntvct() - t) < 0)
+		cpu_relax();
+}
+
+static void __init m1_diag(void)
+{
+	void __iomem *gd = ioremap(0x11001000, 0x1000);
+	void __iomem *gc = ioremap(0x11002000, 0x2000);
+	void __iomem *mct = ioremap(0x101c0000, 0x800);
+	u32 ctl, a, b;
+
+	pr_info("M1DIAG gicd ctlr=%08x typer=%08x iidr=%08x igroupr0=%08x isenabler0=%08x\n",
+		readl(gd), readl(gd + 4), readl(gd + 8), readl(gd + 0x80), readl(gd + 0x100));
+	pr_info("M1DIAG gicc ctlr=%08x pmr=%08x bpr=%08x iidr=%08x\n",
+		readl(gc), readl(gc + 4), readl(gc + 8), readl(gc + 0xfc));
+
+	/* PPI 11 (virtual timer, GIC id 27): enable it ourselves and fire it */
+	writel(1 << 27, gd + 0x100);
+	pr_info("M1DIAG virt-ppi27 isenabler0 after set=%08x\n", readl(gd + 0x100));
+	asm volatile("mcr p15, 0, %0, c14, c3, 0" :: "r"(240000));	/* CNTV_TVAL: 10 ms */
+	asm volatile("mcr p15, 0, %0, c14, c3, 1" :: "r"(1));		/* CNTV_CTL: enable */
+	m1_wait_us(20000);
+	asm volatile("mrc p15, 0, %0, c14, c3, 1" : "=r"(ctl));
+	pr_info("M1DIAG cntv_ctl=%08x (bit2=fired) ispendr0=%08x hppir=%08x\n",
+		ctl, readl(gd + 0x200), readl(gc + 0x18));
+	asm volatile("mcr p15, 0, %0, c14, c3, 1" :: "r"(0));
+	writel(1 << 27, gd + 0x180);
+	writel(1 << 27, gd + 0x280);
+
+	/* MCT global counter + comparator 0 (SPI 102, GIC id 134) */
+	pr_info("M1DIAG mct: starting counter\n");
+	writel(readl(mct + 0x240) | (1 << 8), mct + 0x240);
+	m1_wait_us(200);
+	a = readl(mct + 0x100);
+	m1_wait_us(200);
+	b = readl(mct + 0x100);
+	pr_info("M1DIAG mct cnt %08x -> %08x tcon=%08x\n", a, b, readl(mct + 0x240));
+	writel(b + 24000, mct + 0x200);
+	writel(0, mct + 0x204);
+	writel(1, mct + 0x248);
+	writel(readl(mct + 0x240) | 1, mct + 0x240);
+	m1_wait_us(3000);
+	pr_info("M1DIAG mct cstat=%08x gic ispendr4=%08x (bit6=SPI102)\n",
+		readl(mct + 0x244), readl(gd + 0x210));
+	writel(readl(mct + 0x240) & ~1, mct + 0x240);
+	writel(1, mct + 0x244);
+	writel(0, mct + 0x248);
+	writel(1 << 6, gd + 0x290);
+	pr_info("M1DIAG done\n");
+}
+
+static void __init m1_init_time(void)
+{
+	m1_diag();
+	of_clk_init(NULL);
+	timer_probe();
+	tick_setup_hrtimer_broadcast();
+}
+
 DT_MACHINE_START(EXYNOS_DT, "Samsung Exynos (Flattened Device Tree)")
 	.l2c_aux_val	= 0x08400000,
 	.l2c_aux_mask	= 0xf60fffff,
@@ -220,6 +299,7 @@ DT_MACHINE_START(EXYNOS_DT, "Samsung Exynos (Flattened Device Tree)")
 	.map_io		= exynos_init_io,
 	.init_early	= exynos_firmware_init,
 	.init_irq	= exynos_init_irq,
+	.init_time	= m1_init_time,
 	.init_machine	= exynos_dt_machine_init,
 	.init_late	= exynos_pm_init,
 	.dt_compat	= exynos_dt_compat,

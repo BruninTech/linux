@@ -85,6 +85,18 @@ config SERIAL_EARLYCON_SEMIHOST
 	  This is enabled with "earlycon=smh" on the kernel command line.
 	  The console is enabled when early_param is processed.
 
+config SERIAL_EARLYCON_SECLOG
+	bool "Early console in Samsung's sec_log RAM buffer (Exynos 5433)"
+	depends on ARM && ARCH_EXYNOS
+	select SERIAL_CORE
+	select SERIAL_CORE_CONSOLE
+	select SERIAL_EARLYCON
+	help
+	  Writes the early kernel log into the sec_log ring buffer that
+	  Samsung bootloaders reserve in RAM, so it can be read as
+	  /proc/last_kmsg after a reset.  Enable with
+	  earlycon=seclog,0x25fffff8 on the kernel command line.
+
 config SERIAL_EARLYCON_RISCV_SBI
 	bool "Early console using RISC-V SBI"
 	depends on RISCV_SBI
