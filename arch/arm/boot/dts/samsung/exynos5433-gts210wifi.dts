@@ -75,9 +75,9 @@
 
 &mshc_0 {
 	status = "okay";
+	/* no SMU, and DDR52 only for now: HS400 reads failed on the first try */
+	compatible = "samsung,exynos7-dw-mshc";
 	mmc-ddr-1_8v;
-	mmc-hs200-1_8v;
-	mmc-hs400-1_8v;
 	cap-mmc-highspeed;
 	non-removable;
 	card-detect-delay = <200>;
@@ -101,7 +101,7 @@
 
 &usbdrd_dwc3 {
 	dr_mode = "peripheral";
-	maximum-speed = "high-speed";
+	maximum-speed = "full-speed";
 };
 
 &usbdrd30_phy {
