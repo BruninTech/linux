@@ -231,10 +231,11 @@ static inline u64 m1_cntvct(void)
 
 static void __init m1_wait_us(unsigned int us)
 {
-	u64 t = m1_cntvct() + 24ULL * us;
+	/* crude busy loop: the ARM arch counter turned out not to run */
+	volatile unsigned int i;
 
-	while ((s64)(m1_cntvct() - t) < 0)
-		cpu_relax();
+	for (i = 0; i < us * 200; i++)
+		;
 }
 
 static void __init m1_diag(void)
@@ -242,25 +243,21 @@ static void __init m1_diag(void)
 	void __iomem *gd = ioremap(0x11001000, 0x1000);
 	void __iomem *gc = ioremap(0x11002000, 0x2000);
 	void __iomem *mct = ioremap(0x101c0000, 0x800);
-	u32 ctl, a, b;
+	u32 frq, a, b;
+	u64 v0, v1;
 
 	pr_info("M1DIAG gicd ctlr=%08x typer=%08x iidr=%08x igroupr0=%08x isenabler0=%08x\n",
 		readl(gd), readl(gd + 4), readl(gd + 8), readl(gd + 0x80), readl(gd + 0x100));
 	pr_info("M1DIAG gicc ctlr=%08x pmr=%08x bpr=%08x iidr=%08x\n",
 		readl(gc), readl(gc + 4), readl(gc + 8), readl(gc + 0xfc));
 
-	/* PPI 11 (virtual timer, GIC id 27): enable it ourselves and fire it */
-	writel(1 << 27, gd + 0x100);
-	pr_info("M1DIAG virt-ppi27 isenabler0 after set=%08x\n", readl(gd + 0x100));
-	asm volatile("mcr p15, 0, %0, c14, c3, 0" :: "r"(240000));	/* CNTV_TVAL: 10 ms */
-	asm volatile("mcr p15, 0, %0, c14, c3, 1" :: "r"(1));		/* CNTV_CTL: enable */
-	m1_wait_us(20000);
-	asm volatile("mrc p15, 0, %0, c14, c3, 1" : "=r"(ctl));
-	pr_info("M1DIAG cntv_ctl=%08x (bit2=fired) ispendr0=%08x hppir=%08x\n",
-		ctl, readl(gd + 0x200), readl(gc + 0x18));
-	asm volatile("mcr p15, 0, %0, c14, c3, 1" :: "r"(0));
-	writel(1 << 27, gd + 0x180);
-	writel(1 << 27, gd + 0x280);
+	/* is the ARM generic counter running at all? */
+	asm volatile("mrc p15, 0, %0, c14, c0, 0" : "=r"(frq));
+	v0 = m1_cntvct();
+	m1_wait_us(5000);
+	v1 = m1_cntvct();
+	pr_info("M1DIAG cntfrq=%u cntvct %llu -> %llu (%s)\n", frq, v0, v1,
+		v0 == v1 ? "FROZEN" : "running");
 
 	/* MCT global counter + comparator 0 (SPI 102, GIC id 134) */
 	pr_info("M1DIAG mct: starting counter\n");
@@ -270,6 +267,10 @@ static void __init m1_diag(void)
 	m1_wait_us(200);
 	b = readl(mct + 0x100);
 	pr_info("M1DIAG mct cnt %08x -> %08x tcon=%08x\n", a, b, readl(mct + 0x240));
+	if (a == b) {
+		pr_info("M1DIAG mct counter not counting, skipping compare test\n");
+		return;
+	}
 	writel(b + 24000, mct + 0x200);
 	writel(0, mct + 0x204);
 	writel(1, mct + 0x248);
