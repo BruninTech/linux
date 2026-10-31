@@ -75,10 +75,12 @@
 
 &mshc_0 {
 	status = "okay";
-	/* no SMU, and DDR52 only for now: HS400 reads failed on the first try */
+	/*
+	 * No SMU, legacy 25 MHz timing for now: data reads at 50 MHz+ (DDR52,
+	 * HS400) failed with the TM2 sample/drive phases.
+	 */
 	compatible = "samsung,exynos7-dw-mshc";
-	mmc-ddr-1_8v;
-	cap-mmc-highspeed;
+	max-frequency = <25000000>;
 	non-removable;
 	card-detect-delay = <200>;
 	samsung,dw-mshc-ciu-div = <3>;
@@ -102,6 +104,8 @@
 &usbdrd_dwc3 {
 	dr_mode = "peripheral";
 	maximum-speed = "full-speed";
+	snps,dis_u2_susphy_quirk;
+	snps,dis_enblslpm_quirk;
 };
 
 &usbdrd30_phy {
