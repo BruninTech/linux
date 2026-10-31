@@ -2,87 +2,108 @@
 /*
  * Samsung Galaxy Tab S2 9.7 Wi-Fi (SM-T810, Exynos 5433) - mainline bring-up.
  *
- * Milestone 1: just enough to boot a 32-bit kernel (the Samsung bootloader
- * enters the kernel in AArch32 SVC mode, MMU on) and log through the sec_log
- * RAM buffer.  One CPU, GIC, arch timer, chip id.  Everything else comes later.
+ * The Samsung bootloader enters the kernel in AArch32 SVC mode with the MMU on,
+ * so this is a 32-bit (ARM) kernel using the arm64 SoC description.  One CPU
+ * (no PSCI here), logging through the sec_log RAM buffer.
  */
 /dts-v1/;
-#include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <arm64/exynos/exynos5433.dtsi>
 
 / {
 	model = "Samsung Galaxy Tab S2 9.7 Wi-Fi (SM-T810)";
 	compatible = "samsung,gts210wifi", "samsung,exynos5433";
-	#address-cells = <1>;
-	#size-cells = <1>;
-	interrupt-parent = <&gic>;
 
-	chosen {
-		bootargs = "earlycon=seclog,0x25fffff8 keep_bootcon ignore_loglevel loglevel=8 printk.time=1 panic=0";
+	aliases {
+		mmc0 = &mshc_0;
+		pinctrl0 = &pinctrl_alive;
+		pinctrl1 = &pinctrl_aud;
+		pinctrl2 = &pinctrl_cpif;
+		pinctrl3 = &pinctrl_ese;
+		pinctrl4 = &pinctrl_finger;
+		pinctrl5 = &pinctrl_fsys;
+		pinctrl6 = &pinctrl_imem;
+		pinctrl7 = &pinctrl_nfc;
+		pinctrl8 = &pinctrl_peric;
+		pinctrl9 = &pinctrl_touch;
 	};
 
+	chosen {
+		bootargs = "earlycon=seclog,0x25fffff8 keep_bootcon ignore_loglevel loglevel=8 printk.time=1 panic=0 clk_ignore_unused rdinit=/init";
+	};
+
+	/* RAM handed over by S-Boot (ATAGs): 0x20000000-0xde980000 */
 	memory@20000000 {
 		device_type = "memory";
-		/* 256 MiB for now; the board has 0x20000000-0xde980000 */
-		reg = <0x20000000 0x10000000>;
+		reg = <0x0 0x20000000 0x0 0xbe980000>;
 	};
 
 	reserved-memory {
-		#address-cells = <1>;
-		#size-cells = <1>;
+		#address-cells = <2>;
+		#size-cells = <2>;
 		ranges;
 
-		/*
-		 * Samsung's log areas: sec_log (2 MiB at 0x26000000, with its
-		 * header just below), sec_tima_log, sec_avc_log, sec_pstore.
-		 */
+		/* Samsung log areas: sec_log (+header), tima_log, avc_log, pstore */
 		sec-logs@25fff000 {
-			reg = <0x25fff000 0x547000>;
+			reg = <0x0 0x25fff000 0x0 0x547000>;
+			no-map;
+		};
+
+		/* framebuffer set up by S-Boot */
+		bootloader-fb@67000000 {
+			reg = <0x0 0x67000000 0x0 0x1000000>;
 			no-map;
 		};
 	};
+};
 
-	cpus {
-		#address-cells = <1>;
-		#size-cells = <0>;
+/* The ARM generic timer counter is frozen on this device: use the MCT. */
+&timer {
+	status = "disabled";
+};
 
-		cpu@100 {
-			device_type = "cpu";
-			compatible = "arm,cortex-a53";
-			reg = <0x100>;
-		};
-	};
+&xxti {
+	clock-frequency = <24000000>;
+};
 
-	soc {
-		compatible = "simple-bus";
-		#address-cells = <1>;
-		#size-cells = <1>;
-		ranges;
+/*
+ * The MCT is needed before the CMU drivers probe; give it plain 24 MHz clocks
+ * (the PCLK gate is left on by the bootloader; boot with clk_ignore_unused).
+ */
+&{/soc@0/timer@101c0000} {
+	clocks = <&xxti>, <&xxti>;
+};
 
-		chipid@10000000 {
-			compatible = "samsung,exynos5433-chipid",
-				     "samsung,exynos4210-chipid";
-			reg = <0x10000000 0x100>;
-		};
+&mshc_0 {
+	status = "okay";
+	mmc-ddr-1_8v;
+	mmc-hs200-1_8v;
+	mmc-hs400-1_8v;
+	cap-mmc-highspeed;
+	non-removable;
+	card-detect-delay = <200>;
+	samsung,dw-mshc-ciu-div = <3>;
+	samsung,dw-mshc-sdr-timing = <0 4>;
+	samsung,dw-mshc-ddr-timing = <0 2>;
+	samsung,dw-mshc-hs400-timing = <0 3>;
+	samsung,read-strobe-delay = <90>;
+	fifo-depth = <0x80>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&sd0_clk &sd0_cmd &sd0_qrdy &sd0_bus1 &sd0_bus4
+			&sd0_bus8 &sd0_rdqs>;
+	bus-width = <8>;
+	assigned-clocks = <&cmu_top CLK_SCLK_MMC0_FSYS>;
+	assigned-clock-rates = <800000000>;
+};
 
-		gic: interrupt-controller@11001000 {
-			compatible = "arm,gic-400";
-			#address-cells = <0>;
-			#interrupt-cells = <3>;
-			interrupt-controller;
-			reg = <0x11001000 0x1000>,
-			      <0x11002000 0x2000>,
-			      <0x11004000 0x2000>,
-			      <0x11006000 0x2000>;
-			interrupts = <GIC_PPI 9 0xf04>;
-		};
-	};
+&usbdrd30 {
+	status = "okay";
+};
 
-	arch_timer: timer {
-		compatible = "arm,armv8-timer";
-		interrupts = <GIC_PPI 13 (GIC_CPU_MASK_SIMPLE(8) | IRQ_TYPE_LEVEL_HIGH)>,
-			     <GIC_PPI 14 (GIC_CPU_MASK_SIMPLE(8) | IRQ_TYPE_LEVEL_HIGH)>,
-			     <GIC_PPI 11 (GIC_CPU_MASK_SIMPLE(8) | IRQ_TYPE_LEVEL_HIGH)>,
-			     <GIC_PPI 10 (GIC_CPU_MASK_SIMPLE(8) | IRQ_TYPE_LEVEL_HIGH)>;
-		clock-frequency = <24000000>;
-	};
+&usbdrd_dwc3 {
+	dr_mode = "peripheral";
+	maximum-speed = "high-speed";
+};
+
+&usbdrd30_phy {
+	status = "okay";
 };
