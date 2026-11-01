@@ -31,10 +31,13 @@
 		bootargs = "earlycon=seclog,0x25fffff8 keep_bootcon ignore_loglevel loglevel=8 printk.time=1 panic=0 clk_ignore_unused rdinit=/init";
 	};
 
-	/* RAM handed over by S-Boot (ATAGs): 0x20000000-0xde980000 */
+	/*
+	 * S-Boot hands over 0x20000000-0xde980000.  DMA from eMMC/USB fails with
+	 * everything above the low 512 MiB in play, so test with low RAM only.
+	 */
 	memory@20000000 {
 		device_type = "memory";
-		reg = <0x0 0x20000000 0x0 0xbe980000>;
+		reg = <0x0 0x20000000 0x0 0x20000000>;
 	};
 
 	reserved-memory {
@@ -76,10 +79,10 @@
 &mshc_0 {
 	status = "okay";
 	/*
-	 * No SMU, legacy 25 MHz timing for now: data reads at 50 MHz+ (DDR52,
-	 * HS400) failed with the TM2 sample/drive phases.
+	 * Legacy 25 MHz timing for now: data reads at 50 MHz+ (DDR52, HS400)
+	 * failed with the TM2 sample/drive phases.  Keep the SMU variant: the
+	 * 8-bit bus test only passed with it.
 	 */
-	compatible = "samsung,exynos7-dw-mshc";
 	max-frequency = <25000000>;
 	non-removable;
 	card-detect-delay = <200>;
