@@ -8,6 +8,7 @@
 #include <linux/init.h>
 #include <linux/io.h>
 #include <linux/of.h>
+#include <linux/string.h>
 #include <linux/of_address.h>
 #include <linux/of_fdt.h>
 #include <linux/platform_device.h>
@@ -310,8 +311,10 @@ static int __init m2_fmp_unlock(void)
 {
 	int r, r2;
 
-	if (!of_machine_is_compatible("samsung,gts210wifi"))
+	if (!of_machine_is_compatible("samsung,gts210wifi") ||
+	    !strstr(saved_command_line, "m2smc"))
 		return 0;
+	pr_info("M2 FMP: calling smc\n");
 	r = m2_smc((unsigned long)-101, (1UL << 30) | (0x15541000 >> 2), 0, 0);
 	r2 = m2_smc((unsigned long)-101, (3UL << 30) | (0x15541000 >> 2), 0, 0);
 	pr_info("M2 FMP smc write ret=%d, read ret=0x%x\n", r, r2);
