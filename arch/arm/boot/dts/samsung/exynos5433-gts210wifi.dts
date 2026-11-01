@@ -29,7 +29,7 @@
 	};
 
 	chosen {
-		bootargs = "earlycon=seclog,0x25fffff8 keep_bootcon ignore_loglevel loglevel=8 printk.time=1 panic=0 clk_ignore_unused rdinit=/init";
+		bootargs = "earlycon=seclog,0x25fffff8 keep_bootcon ignore_loglevel loglevel=8 printk.time=1 panic=0 clk_ignore_unused rdinit=/init dyndbg=\"file drivers/mmc/core/block.c +p; file drivers/mmc/core/core.c +p; file drivers/mmc/core/mmc.c +p; file drivers/mmc/host/dw_mmc.c +p; file drivers/mmc/host/dw_mmc-exynos.c +p\"";
 	};
 
 	/* RAM handed over by S-Boot (ATAGs): 0x20000000-0xde980000 */
@@ -92,8 +92,10 @@
 	status = "okay";
 	/*
 	 * HS200 only (no HS400/DDR): the 8-bit bus test only worked once the
-	 * core had switched the pads to 1.8 V for HS200.
+	 * core had switched the pads to 1.8 V for HS200.  Samsung's own DT has
+	 * "bypass-smu", so use the non-SMU variant.
 	 */
+	compatible = "samsung,exynos7-dw-mshc";
 	mmc-hs200-1_8v;
 	cap-mmc-highspeed;
 	non-removable;
