@@ -8,6 +8,7 @@
  */
 /dts-v1/;
 #include <arm64/exynos/exynos5433.dtsi>
+#include <dt-bindings/gpio/gpio.h>
 
 / {
 	model = "Samsung Galaxy Tab S2 9.7 Wi-Fi (SM-T810)";
@@ -31,13 +32,24 @@
 		bootargs = "earlycon=seclog,0x25fffff8 keep_bootcon ignore_loglevel loglevel=8 printk.time=1 panic=0 clk_ignore_unused rdinit=/init";
 	};
 
-	/*
-	 * S-Boot hands over 0x20000000-0xde980000.  DMA from eMMC/USB fails with
-	 * everything above the low 512 MiB in play, so test with low RAM only.
-	 */
+	/* RAM handed over by S-Boot (ATAGs): 0x20000000-0xde980000 */
 	memory@20000000 {
 		device_type = "memory";
-		reg = <0x0 0x20000000 0x0 0x20000000>;
+		reg = <0x0 0x20000000 0x0 0xbe980000>;
+	};
+
+	/*
+	 * Bit-banged I2C to the SM5703 MUIC (address 0x25).  S-Boot leaves the
+	 * connector's D+/D- switched to UART; it must be switched to USB
+	 * (MANUAL_SW1 = 0x25) before the USB gadget can be seen by a host.
+	 */
+	i2c-muic {
+		compatible = "i2c-gpio";
+		sda-gpios = <&gpd1 5 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		scl-gpios = <&gpd1 4 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+		i2c-gpio,delay-us = <2>;
+		#address-cells = <1>;
+		#size-cells = <0>;
 	};
 
 	reserved-memory {
@@ -79,11 +91,11 @@
 &mshc_0 {
 	status = "okay";
 	/*
-	 * Legacy 25 MHz timing for now: data reads at 50 MHz+ (DDR52, HS400)
-	 * failed with the TM2 sample/drive phases.  Keep the SMU variant: the
-	 * 8-bit bus test only passed with it.
+	 * HS200 only (no HS400/DDR): the 8-bit bus test only worked once the
+	 * core had switched the pads to 1.8 V for HS200.
 	 */
-	max-frequency = <25000000>;
+	mmc-hs200-1_8v;
+	cap-mmc-highspeed;
 	non-removable;
 	card-detect-delay = <200>;
 	samsung,dw-mshc-ciu-div = <3>;
