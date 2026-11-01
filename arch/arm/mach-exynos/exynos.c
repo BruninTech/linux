@@ -293,6 +293,32 @@ static void __init m1_init_time(void)
 	tick_setup_hrtimer_broadcast();
 }
 
+static noinline int m2_smc(unsigned long a0, unsigned long a1, unsigned long a2, unsigned long a3)
+{
+	register unsigned long r0 asm("r0") = a0;
+	register unsigned long r1 asm("r1") = a1;
+	register unsigned long r2 asm("r2") = a2;
+	register unsigned long r3 asm("r3") = a3;
+
+	asm volatile(".arch_extension sec\n\tsmc #0"
+		     : "+r"(r0), "+r"(r1), "+r"(r2), "+r"(r3) : : "memory");
+	return r0;
+}
+
+/* Samsung S-Boot monitor: SMC_CMD_REG(-101) SFR write to the eMMC FMP block */
+static int __init m2_fmp_unlock(void)
+{
+	int r, r2;
+
+	if (!of_machine_is_compatible("samsung,gts210wifi"))
+		return 0;
+	r = m2_smc((unsigned long)-101, (1UL << 30) | (0x15541000 >> 2), 0, 0);
+	r2 = m2_smc((unsigned long)-101, (3UL << 30) | (0x15541000 >> 2), 0, 0);
+	pr_info("M2 FMP smc write ret=%d, read ret=0x%x\n", r, r2);
+	return 0;
+}
+arch_initcall(m2_fmp_unlock);
+
 DT_MACHINE_START(EXYNOS_DT, "Samsung Exynos (Flattened Device Tree)")
 	.l2c_aux_val	= 0x08400000,
 	.l2c_aux_mask	= 0xf60fffff,
