@@ -24,13 +24,17 @@ usb_net() {
     G=/sys/kernel/config/usb_gadget/g1
     [ -d /sys/kernel/config/usb_gadget ] || { log "no usb_gadget configfs"; return 1; }
     mkdir -p $G && cd $G || return 1
-    echo 0x1d6b > idVendor; echo 0x0104 > idProduct
+    echo 0x1d6b > idVendor; echo 0x0116 > idProduct
+    echo 0x0200 > bcdUSB; echo 0xEF > bDeviceClass; echo 0x02 > bDeviceSubClass; echo 0x01 > bDeviceProtocol
     mkdir -p strings/0x409
     echo "Tab S2 mainline" > strings/0x409/product
     echo "BruninTech" > strings/0x409/manufacturer
+    echo "tabs2-0001" > strings/0x409/serialnumber
     echo 0x01 > os_desc/b_vendor_code 2>/dev/null
     echo "MSFT100" > os_desc/qw_sign 2>/dev/null
-    mkdir -p configs/c.1 functions/rndis.usb0
+    mkdir -p configs/c.1/strings/0x409 functions/rndis.usb0
+    echo "RNDIS" > configs/c.1/strings/0x409/configuration
+    echo 0x80 > configs/c.1/bmAttributes; echo 250 > configs/c.1/MaxPower
     echo 1 > os_desc/use 2>/dev/null
     echo RNDIS > functions/rndis.usb0/os_desc/interface.rndis/compatible_id 2>/dev/null
     echo 5162001 > functions/rndis.usb0/os_desc/interface.rndis/sub_compatible_id 2>/dev/null
