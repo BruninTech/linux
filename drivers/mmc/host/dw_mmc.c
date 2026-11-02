@@ -1295,6 +1295,9 @@ static void dw_mci_set_data_timeout(struct dw_mci *host,
 	clk_div = (mci_readl(host, CLKDIV) & 0xFF) * 2;
 	if (clk_div == 0)
 		clk_div = 1;
+	/* Exynos5433: the data timeout counter runs at cclk_in, not the divided card clock */
+	if (device_property_read_bool(host->dev, "snps,dtmout-cclk-in"))
+		clk_div = 1;
 
 	tmp = DIV_ROUND_UP_ULL((u64)timeout_ns * host->bus_hz, NSEC_PER_SEC);
 	tmp = DIV_ROUND_UP_ULL(tmp, clk_div);

@@ -111,6 +111,8 @@
 			&sd0_bus8 &sd0_rdqs>;
 	bus-width = <8>;
 	snps,force-pio;
+	snps,dtmout-cclk-in;
+	max-frequency = <3000000>;
 	assigned-clocks = <&cmu_top CLK_SCLK_MMC0_FSYS>;
 	assigned-clock-rates = <800000000>;
 };
