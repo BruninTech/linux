@@ -1282,7 +1282,7 @@ static void dw_mci_setup_bus(struct dw_mci_slot *slot, bool force_clkinit)
 	mci_writel(host, CTYPE, (slot->ctype << slot->id));
 }
 
-static unsigned int dw_mci_tmout_override = 0x30D40; /* bring-up: raw TMOUT[31:8] data timeout, 0 = computed */
+static unsigned int dw_mci_tmout_override = 0x9000; /* bring-up: raw TMOUT[31:8] data timeout, 0 = computed */
 module_param_named(tmout_override, dw_mci_tmout_override, uint, 0644);
 
 static void dw_mci_set_data_timeout(struct dw_mci *host,
