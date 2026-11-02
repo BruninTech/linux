@@ -120,7 +120,6 @@
 
 &usbdrd_dwc3 {
 	dr_mode = "peripheral";
-	maximum-speed = "full-speed";
 	snps,dis_u2_susphy_quirk;
 	snps,dis_enblslpm_quirk;
 };
