@@ -1,0 +1,126 @@
+#!/bin/busybox sh
+# M2 init: bring up what the mainline kernel found, report it into the kernel log
+# (which sec_log keeps across a reset), and offer a USB network + telnet shell.
+/bin/busybox --install -s
+export PATH=/sbin:/bin:/usr/sbin:/usr/bin
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+mkdir -p /dev/pts /tmp /mnt
+mount -t devpts devpts /dev/pts
+mount -t tmpfs tmpfs /tmp
+log() { echo "m2: $*" > /dev/kmsg; }
+log "init started, kernel $(uname -r)"
+log "cmdline: $(cat /proc/cmdline)"
+log "mem: $(grep -E 'MemTotal|HighTotal' /proc/meminfo | tr -s ' ' | tr '\n' ' ')"
+log "block devices: $(ls /sys/class/block | tr '\n' ' ')"
+log "mmc: $(ls /sys/class/mmc_host 2>&1 | tr '\n' ' ')"
+log "udc: $(ls /sys/class/udc 2>&1 | tr '\n' ' ')"
+log "net: $(ls /sys/class/net | tr '\n' ' ')"
+log "clk summary lines: $(mount -t debugfs none /sys/kernel/debug 2>&1; wc -l < /sys/kernel/debug/clk/clk_summary 2>&1)"
+
+usb_net() {
+    mount -t configfs none /sys/kernel/config 2>/dev/null
+    G=/sys/kernel/config/usb_gadget/g1
+    [ -d /sys/kernel/config/usb_gadget ] || { log "no usb_gadget configfs"; return 1; }
+    mkdir -p $G && cd $G || return 1
+    echo 0x1d6b > idVendor; echo 0x0104 > idProduct
+    mkdir -p strings/0x409
+    echo "Tab S2 mainline" > strings/0x409/product
+    echo "BruninTech" > strings/0x409/manufacturer
+    echo 0x01 > os_desc/b_vendor_code 2>/dev/null
+    echo "MSFT100" > os_desc/qw_sign 2>/dev/null
+    mkdir -p configs/c.1 functions/rndis.usb0
+    echo 1 > os_desc/use 2>/dev/null
+    echo RNDIS > functions/rndis.usb0/os_desc/interface.rndis/compatible_id 2>/dev/null
+    echo 5162001 > functions/rndis.usb0/os_desc/interface.rndis/sub_compatible_id 2>/dev/null
+    ln -s functions/rndis.usb0 configs/c.1/ 
+    ln -s configs/c.1 os_desc 2>/dev/null
+    U=$(ls /sys/class/udc | head -n1)
+    [ -n "$U" ] || { log "no UDC to bind"; return 1; }
+    echo "$U" > UDC && log "gadget bound to $U"
+    sleep 1
+    ifconfig usb0 172.16.42.1 netmask 255.255.255.0 up && log "usb0 up 172.16.42.1"
+    cd /
+}
+# S-Boot leaves the USB data lines routed to UART (MUIC MANUAL_SW1 = 0x6d): route them to USB (0x25)
+muic_fix() {
+    B=""
+    for d in /dev/i2c-*; do
+        [ -e "$d" ] && B=${d##*-} && log "i2c device $d: $(cat /sys/bus/i2c/devices/i2c-$B/name 2>&1)"
+    done
+    [ -n "$B" ] || { log "muic: no i2c adapter"; return 1; }
+    log "muic: bus $B, devid=$(i2cget -y $B 0x25 0x01 2>&1) ctrl=$(i2cget -y $B 0x25 0x02 2>&1) mansw1=$(i2cget -y $B 0x25 0x13 2>&1) mansw2=$(i2cget -y $B 0x25 0x14 2>&1)"
+    log "muic: type1=$(i2cget -y $B 0x25 0x0a 2>&1) type2=$(i2cget -y $B 0x25 0x0b 2>&1) type3=$(i2cget -y $B 0x25 0x15 2>&1) adc=$(i2cget -y $B 0x25 0x07 2>&1)"
+    i2cset -y $B 0x25 0x13 0x25 2>&1 | dumpk
+    log "muic: after write mansw1=$(i2cget -y $B 0x25 0x13 2>&1)"
+}
+dumpk() { while IFS= read -r l; do echo "m2: $l" > /dev/kmsg; done; }
+muic_fix
+regdump() {
+    for a in 0x105c0704 0x15500000 0x15500004 0x15500008 0x1550000c 0x15500010 0x15500014 0x15500018 0x1550001c 0x15500020 0x15500024 0x15500028 0x1550002c 0x15500030 0x15500034 0x15500038 0x1550003c 0x15500040 0x15500044 0x1540c100 0x1540c110 0x1540c12c 0x1540c200 0x1540c2c0 0x1540c700 0x1540c704 0x1540c708 0x1540c70c; do
+        log "reg $a = $(busybox devmem $a 32 2>&1)"
+    done
+    grep -i "usb\|fsys\|phy\|xxti\|fin_pll" /sys/kernel/debug/clk/clk_summary 2>/dev/null | head -40 | dumpk
+}
+mount -t debugfs none /sys/kernel/debug 2>/dev/null
+regdump
+
+# Samsung device-mode PHY tune (downstream 5430/5433): compdis 4, sqrx 7, preemp 3, txvref 0xf
+P0=$(busybox devmem 0x1550001c 32)
+N=$(( (P0 & ~0x03DC01C0) | (7<<6) | (3<<15) | (0xf<<22) ))
+busybox devmem 0x1550001c 32 $N
+log "phytune: PHYPARAM0 $P0 -> $(busybox devmem 0x1550001c 32)"
+
+# Samsung clears EN_UTMISUSPEND (PHYCLKRST bit31) -- mainline sets it
+C=$(busybox devmem 0x15500010 32)
+busybox devmem 0x15500010 32 $(( C & 0x7fffffff ))
+log "phyclkrst: $C -> $(busybox devmem 0x15500010 32)"
+
+# CMU_FSYS MUX_SEL_FSYS2: bit0 = usbdrd30 phyclock user mux, bit4 = pipe pclk user mux (1 = PHY clock)
+log "fsys mux_sel2=$(busybox devmem 0x156e0208 32) stat2=$(busybox devmem 0x156e0408 32)"
+M=$(busybox devmem 0x156e0208 32)
+#DT now sets this: busybox devmem 0x156e0208 32 $(( M | 0x11 ))
+sleep 1
+log "fsys mux_sel2 after=$(busybox devmem 0x156e0208 32) stat2=$(busybox devmem 0x156e0408 32)"
+grep -i "usbdrd" /sys/kernel/debug/clk/clk_summary 2>/dev/null | dumpk
+mount -t debugfs none /sys/kernel/debug 2>/dev/null
+echo 1 > /sys/kernel/debug/tracing/events/dwc3/enable 2>/dev/null
+echo 0 > /sys/kernel/debug/tracing/events/dwc3/dwc3_readl/enable 2>/dev/null
+echo 0 > /sys/kernel/debug/tracing/events/dwc3/dwc3_writel/enable 2>/dev/null
+echo > /sys/kernel/debug/tracing/trace
+echo 1 > /sys/kernel/debug/tracing/events/gadget/enable 2>/dev/null
+dumpk() { while IFS= read -r l; do echo "m2: $l" > /dev/kmsg; done; }
+usb_net 2>/tmp/usb_net.err || true
+[ -s /tmp/usb_net.err ] && log "usb_net errors: $(cat /tmp/usb_net.err | tr '\n' ';')"
+telnetd -p 23 -l /bin/sh && log "telnetd on 23"
+
+# peek at the eMMC
+for p in mmcblk0p22 mmcblk0; do [ -b /dev/$p ] && log "found /dev/$p"; done
+if [ -b /dev/mmcblk0p22 ]; then
+    mkdir -p /mnt/data
+    mount -t ext4 -o ro /dev/mmcblk0p22 /mnt/data 2>/tmp/m.err && log "userdata mounted ro: $(ls /mnt/data | tr '\n' ' ')" || log "userdata mount failed: $(cat /tmp/m.err)"
+fi
+
+sleep 8
+log "--- dwc3 debugfs ---"
+for f in /sys/kernel/debug/usb/*/link_state; do
+    log "$f"; head -n 80 $f 2>&1 | dumpk
+done
+log "--- trace (last 130 lines, no reg access) ---"
+tail -n 130 /sys/kernel/debug/tracing/trace 2>&1 | dumpk
+log "--- gadget/udc state ---"
+for f in /sys/class/udc/*/state /sys/class/udc/*/speed /sys/class/udc/*/current_speed; do log "$f: $(cat $f 2>&1)"; done
+log "--- mmc ---"
+ls /dev/mmcblk0* 2>&1 | tr '\n' ' ' | dumpk
+dd if=/dev/mmcblk0 bs=512 count=1 2>&1 | head -c 600 | od -An -tx1 | head -n 8 | dumpk
+log "--- end dumps ---"
+sleep 30
+log "--- trace again after 30s (last 60) ---"
+tail -n 60 /sys/kernel/debug/tracing/trace 2>&1 | dumpk
+i=0
+while true; do
+    i=$((i+1))
+    [ $((i % 6)) = 1 ] && log "alive $i usb0=$(cat /sys/class/net/usb0/operstate 2>&1) udc=$(cat /sys/class/udc/*/state 2>&1)"
+    sleep 5
+done

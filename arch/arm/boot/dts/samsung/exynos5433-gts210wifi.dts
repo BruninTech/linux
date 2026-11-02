@@ -116,6 +116,11 @@
 
 &usbdrd30 {
 	status = "okay";
+	/* S-Boot leaves the link clock muxes on OSC; USB only works from the PHY clocks */
+	assigned-clocks = <&cmu_fsys CLK_MOUT_PHYCLK_USBDRD30_UDRD30_PHYCLOCK_USER>,
+			  <&cmu_fsys CLK_MOUT_PHYCLK_USBDRD30_UDRD30_PIPE_PCLK_USER>;
+	assigned-clock-parents = <&cmu_fsys CLK_PHYCLK_USBDRD30_UDRD30_PHYCLOCK_PHY>,
+				 <&cmu_fsys CLK_PHYCLK_USBDRD30_UDRD30_PIPE_PCLK_PHY>;
 };
 
 &usbdrd_dwc3 {
